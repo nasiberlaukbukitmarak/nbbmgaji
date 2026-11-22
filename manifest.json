@@ -1,7 +1,7 @@
 {
   "name": "NBBM Gaji",
   "short_name": "NBBM Gaji",
-  "description": "Kalkulator gaji hantar nasi - Nasi Berlauk Bukit Marak",
+  "description": "Kalkulator penghantar nasi - Nasi Berlauk Bukit Marak",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

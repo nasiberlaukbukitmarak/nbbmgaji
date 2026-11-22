@@ -1,4 +1,4 @@
-const CACHE = "nbbm-gaji-v4";
+const CACHE = "nbbm-gaji-v6";
 const FILES = ["./", "index.html", "manifest.json", "logo.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
