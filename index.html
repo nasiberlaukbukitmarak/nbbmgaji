@@ -56,10 +56,28 @@
   .monthly { margin-top: 28px; }
   .monthly th, .monthly td { white-space: nowrap; }
   .del { padding:4px 8px; font-size:.8rem; color:var(--bad); }
+  .slip { display:none; }
+  .slip-title { text-align:center; font-size:1.5rem; font-weight:800; letter-spacing:.15em; margin:4px 0 12px; }
+  .slip table { width:100%; border-collapse:collapse; font-size:.95rem; }
+  .slip-info td { border:none; padding:3px 6px; text-align:left; }
+  .slip-info td:nth-child(odd) { color:#4b5563; width:18%; }
+  .slip-info td:nth-child(even) { font-weight:600; width:32%; }
+  .slip-table { margin-top:12px; border:1px solid #111; }
+  .slip-table th { background:#e5e7eb; color:#111; border:1px solid #111; font-size:.75rem; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .slip-table td { border:1px solid #9ca3af; }
+  .slip-table tfoot td { border-top:2px solid #111; }
+  .slip-sum { margin-top:12px; margin-left:auto; width:60%; }
+  .slip-sum td { border:none; padding:4px 6px; text-align:right; }
+  .slip-sum td:first-child { text-align:left; }
+  .slip-sum tr.net td { border-top:2px solid #111; border-bottom:3px double #111; font-weight:800; font-size:1.1rem; }
+  .sign { display:flex; justify-content:space-between; gap:40px; margin-top:56px; font-size:.9rem; }
+  .sign div { flex:1; border-top:1px solid #111; padding-top:6px; text-align:center; }
+  .slip-foot { margin-top:24px; text-align:center; color:#6b7280; font-size:.75rem; }
   @media print {
-    body.pb .weekly { display:none; }
-    body:not(.pb) .monthly { display:none; }
-    .monthly { margin-top:0; }
+    body.pb .weekly, body.pb .monthly { display:none; }
+    body:not(.pb) .monthly, body:not(.pb) .slip { display:none; }
+    body.pb .slip { display:block; }
+    .install-row { display:none; }
     body { background:#fff; }
     .no-print { display:none !important; }
     .print-only { display:block; }
@@ -173,9 +191,30 @@
           <div class="sub" style="margin:0">Jumlah gaji bersih sebulan</div>
           <div class="big" id="mBig">RM 0.00</div>
         </div>
-        <div class="no-print"><button class="primary" id="printBulan">Cetak / Simpan PDF Bulanan</button></div>
+        <div class="no-print"><button class="primary" id="printBulan">Muat turun Slip Gaji (PDF)</button></div>
       </div>
     </div>
+  </section>
+
+  <section class="slip">
+    <div class="slip-title">SLIP GAJI</div>
+    <table class="slip-info">
+      <tr><td>Nama staff</td><td id="slName">-</td><td>Bulan</td><td id="slBulan">-</td></tr>
+      <tr><td>Jawatan</td><td>Penghantar Nasi</td><td>Tarikh slip</td><td id="slTarikh">-</td></tr>
+    </table>
+    <table class="slip-table">
+      <thead><tr><th>Minggu</th><th>Dihantar</th><th>Terjual</th><th>Gaji kasar (RM)</th><th>Potongan (RM)</th><th>Gaji bersih (RM)</th></tr></thead>
+      <tbody id="slRows"></tbody>
+      <tfoot id="slFoot"></tfoot>
+    </table>
+    <table class="slip-sum">
+      <tr><td>Jumlah pendapatan</td><td id="slKasar">0.00</td></tr>
+      <tr><td>Jumlah potongan pinjaman</td><td id="slPotong">0.00</td></tr>
+      <tr><td>Baki pinjaman akhir bulan</td><td id="slBaki">0.00</td></tr>
+      <tr class="net"><td>GAJI BERSIH</td><td id="slBersih">RM 0.00</td></tr>
+    </table>
+    <div class="sign"><div>Disediakan oleh</div><div>Diterima oleh<br><span id="slSign"></span></div></div>
+    <div class="slip-foot">Slip ini dijana oleh sistem NBBM Gaji - Nasi Berlauk Bukit Marak</div>
   </section>
 </div>
 
@@ -337,6 +376,21 @@ function renderBulan() {
 
   let label = bulan;
   if (bulan) { const [y, m] = bulan.split("-"); label = new Date(+y, +m - 1, 1).toLocaleDateString("ms-MY", { month:"long", year:"numeric" }); }
+  const tarikhSlip = new Date().toLocaleDateString("ms-MY", { day:"numeric", month:"long", year:"numeric" });
+  $("slName").textContent = sel.value || "-";
+  $("slBulan").textContent = label || "-";
+  $("slTarikh").textContent = tarikhSlip;
+  $("slSign").textContent = sel.value ? "(" + sel.value + ")" : "";
+  $("slRows").innerHTML = list.map(e => {
+    const s2 = new Date(e.minggu + "T00:00:00"), t2 = new Date(s2); t2.setDate(t2.getDate() + 6);
+    return `<tr><td>${fmtD(s2)} - ${fmtD(t2)}</td><td>${e.hantar}</td><td>${e.jual}</td><td>${rm(e.gaji)}</td><td>${rm(e.potong)}</td><td>${rm(e.bersih)}</td></tr>`;
+  }).join("");
+  $("slFoot").innerHTML = list.length
+    ? `<tr><td>Jumlah</td><td>${H}</td><td>${J}</td><td>${rm(G)}</td><td>${rm(P)}</td><td>${rm(B)}</td></tr>` : "";
+  $("slKasar").textContent = rm(G);
+  $("slPotong").textContent = "- " + rm(P);
+  $("slBaki").textContent = list.length ? rm(list[list.length - 1].bakiAkhir) : "0.00";
+  $("slBersih").textContent = "RM " + rm(B);
   $("monthInfo").textContent = `Staff: ${sel.value || "-"}  |  Bulan: ${label || "-"}  |  Bilangan minggu: ${list.length}`;
 }
 
@@ -353,8 +407,13 @@ $("mrows").addEventListener("click", e => {
   data.sejarah = data.sejarah.filter(x => x.id !== id);
   save(); renderBulan();
 });
-$("printBulan").addEventListener("click", () => { document.body.classList.add("pb"); window.print(); });
-addEventListener("afterprint", () => document.body.classList.remove("pb"));
+$("printBulan").addEventListener("click", () => {
+  if (!$("mrows").children.length) { alert("Tiada rekod untuk dicetak. Simpan minggu dahulu."); return; }
+  document.title = `Slip Gaji - ${$("staf").value} - ${$("bulan").value}`;
+  document.body.classList.add("pb");
+  window.print();
+});
+addEventListener("afterprint", () => { document.body.classList.remove("pb"); document.title = "NBBM Gaji"; });
 
 // Pasang sebagai app
 let deferredPrompt = null;
