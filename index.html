@@ -316,8 +316,9 @@ function calc() {
 ["nama","minggu","harga","kadar","baki","baru","potong"].forEach(id => $(id).addEventListener("input", e => { data[id] = e.target.value; calc(); }));
 $("print").addEventListener("click", () => window.print());
 $("reset").addEventListener("click", () => {
-  if (!confirm("Kosongkan semua jumlah hantar dan terjual?")) return;
+  if (!confirm("Kosongkan semua jumlah hantar, terjual dan maklumat pinjaman gaji?")) return;
   data.hantar = Array(7).fill(""); data.jual = Array(7).fill("");
+  data.baki = ""; data.baru = ""; data.potong = "";
   build(); calc();
 });
 
