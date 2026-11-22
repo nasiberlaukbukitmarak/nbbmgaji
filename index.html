@@ -50,7 +50,15 @@
   .brand-name { font-size:1.25rem; font-weight:800; color:#fcd34d; line-height:1.2; }
   .tagline { font-size:.9rem; color:#f3f4f6; margin-top:2px; font-style:italic; }
   .scroll { overflow-x:auto; }
+  select { width:100%; padding:10px; font-size:1rem; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:var(--text); }
+  .monthly { margin-top: 28px; }
+  .monthly th, .monthly td { white-space: nowrap; }
+  .monthly td:nth-child(2), .monthly th:nth-child(2) { text-align:left; }
+  .del { padding:4px 8px; font-size:.8rem; color:var(--bad); }
   @media print {
+    body.pb .weekly { display:none; }
+    body:not(.pb) .monthly { display:none; }
+    .monthly { margin-top:0; }
     body { background:#fff; }
     .no-print { display:none !important; }
     .print-only { display:block; }
@@ -70,13 +78,14 @@
     </div>
   </header>
   <div class="install-row no-print"><button id="install">📲 Pasang sebagai App</button></div>
+  <div class="weekly">
   <h1>Kalkulator Gaji Hantar Nasi</h1>
   <p class="sub">Gaji dikira berdasarkan bungkus yang <b>berjaya dijual</b> sahaja.</p>
 
   <div class="card">
     <div class="grid">
       <div><label for="nama">Nama staff</label><input id="nama" type="text" placeholder="Contoh: Ali"></div>
-      <div><label for="minggu">Tarikh mula minggu</label><input id="minggu" type="date"></div>
+      <div><label for="minggu">Tarikh mula minggu (hari Ahad)</label><input id="minggu" type="date"></div>
       <div><label for="harga">Harga nasi (RM/bungkus)</label><input id="harga" type="number" step="0.01" min="0" value="4"></div>
       <div><label for="kadar">Gaji (RM/bungkus terjual)</label><input id="kadar" type="number" step="0.01" min="0" value="1"></div>
     </div>
@@ -120,6 +129,7 @@
         <div class="big" id="big">RM 0.00</div>
       </div>
       <div class="no-print">
+        <button id="saveWeek">Simpan minggu ini</button>
         <button id="newWeek">Minggu baru</button>
         <button id="reset">Kosongkan</button>
         <button class="primary" id="print">Cetak / Simpan PDF</button>
@@ -128,14 +138,52 @@
   </div>
 
   <p class="sub print-only" id="printInfo"></p>
+  </div>
+
+  <section class="monthly">
+    <div class="card no-print">
+      <h2>Ringkasan bulanan</h2>
+      <div class="grid">
+        <div><label for="bulan">Bulan</label><input id="bulan" type="month"></div>
+        <div><label for="staf">Staff</label><select id="staf"></select></div>
+      </div>
+      <div class="hint">Tekan <b>Simpan minggu ini</b> pada kalkulator untuk masukkan minggu ke ringkasan. Minggu dikira ikut bulan pada tarikh mula minggu.</div>
+    </div>
+
+    <div class="card">
+      <h2 class="print-only">Ringkasan Gaji Bulanan</h2>
+      <p class="sub print-only" id="monthInfo"></p>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Minggu</th><th>Staff</th><th>Dihantar</th><th>Terjual</th><th>Gaji kasar</th><th>Potongan</th><th>Gaji bersih</th><th class="no-print"></th></tr>
+          </thead>
+          <tbody id="mrows"></tbody>
+          <tfoot id="mfoot"></tfoot>
+        </table>
+      </div>
+      <div class="hint" id="mEmpty"></div>
+      <hr style="border:none;border-top:1px solid var(--line);margin:10px 0">
+      <div class="sumline"><span>Gaji kasar sebulan</span><span id="mGaji">RM 0.00</span></div>
+      <div class="sumline minus"><span>Potongan pinjaman sebulan</span><span id="mPotong">- RM 0.00</span></div>
+      <div class="sumline" id="mBakiRow"><span>Baki pinjaman akhir bulan</span><span id="mBaki">RM 0.00</span></div>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <div class="sub" style="margin:0">Jumlah gaji bersih sebulan</div>
+          <div class="big" id="mBig">RM 0.00</div>
+        </div>
+        <div class="no-print"><button class="primary" id="printBulan">Cetak / Simpan PDF Bulanan</button></div>
+      </div>
+    </div>
+  </section>
 </div>
 
 <script>
-const HARI = ["Isnin","Selasa","Rabu","Khamis","Jumaat","Sabtu","Ahad"];
+const HARI = ["Ahad","Isnin","Selasa","Rabu","Khamis","Jumaat","Sabtu"];
 const KEY = "gaji-nasi-v1";
 const $ = id => document.getElementById(id);
-let data = { nama:"", minggu:"", harga:4, kadar:1, baki:"", baru:"", potong:"", hantar:Array(7).fill(""), jual:Array(7).fill("") };
-let last = { gaji:0, potong:0, bakiAkhir:0, bersih:0 };
+let data = { nama:"", minggu:"", harga:4, kadar:1, baki:"", baru:"", potong:"", sejarah:[], hantar:Array(7).fill(""), jual:Array(7).fill("") };
+let last = { gaji:0, potong:0, bakiAkhir:0, bersih:0, tH:0, tJ:0 };
 
 try { const s = localStorage.getItem(KEY); if (s) data = Object.assign(data, JSON.parse(s)); } catch(e) {}
 
@@ -189,7 +237,7 @@ function calc() {
   const potong = Math.min(mintaPotong, jumlahHutang, tG);
   const bersih = tG - potong;
   const bakiAkhir = jumlahHutang - potong;
-  last = { gaji:tG, potong, bakiAkhir, bersih, jumlahHutang };
+  last = { gaji:tG, potong, bakiAkhir, bersih, jumlahHutang, tH, tJ };
   $("sGaji").textContent = "RM " + rm(tG);
   $("sPotong").textContent = "- RM " + rm(potong);
   $("sBaki").textContent = "RM " + rm(bakiAkhir);
@@ -221,11 +269,90 @@ $("potongPenuh").addEventListener("click", () => {
 
 $("newWeek").addEventListener("click", () => {
   if (!confirm("Mula minggu baru? Jumlah hantar/terjual dikosongkan dan baki pinjaman dibawa ke minggu depan.")) return;
+  if (last.tH > 0) {
+    if (data.minggu && data.nama.trim()) saveWeek(true);
+    else if (!confirm("Nama staff atau tarikh mula minggu kosong, jadi minggu ini TIDAK disimpan ke ringkasan bulanan. Teruskan?")) return;
+  }
   data.baki = last.bakiAkhir > 0 ? rm(last.bakiAkhir) : "";
   data.baru = ""; data.potong = ""; data.minggu = "";
   data.hantar = Array(7).fill(""); data.jual = Array(7).fill("");
   build(); calc();
 });
+
+// ===== Ringkasan bulanan =====
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtD = d => d.toLocaleDateString("ms-MY", { day:"numeric", month:"short" });
+
+function saveWeek(silent) {
+  if (!data.minggu) { alert("Isi 'Tarikh mula minggu' dahulu."); return false; }
+  if (!data.nama.trim()) { alert("Isi 'Nama staff' dahulu."); return false; }
+  const nama = data.nama.trim();
+  if (new Date(data.minggu + "T00:00:00").getDay() !== 0 &&
+      !confirm("Tarikh mula minggu bukan hari Ahad. Minggu dikira Ahad hingga Sabtu. Teruskan simpan?")) return false;
+  data.sejarah = data.sejarah.filter(e => !(e.minggu === data.minggu && e.nama.toLowerCase() === nama.toLowerCase()));
+  data.sejarah.push({
+    id: Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+    nama, minggu: data.minggu,
+    hantar: last.tH, jual: last.tJ,
+    gaji: last.gaji, potong: last.potong, bersih: last.bersih, bakiAkhir: last.bakiAkhir
+  });
+  save();
+  renderBulan();
+  if (!silent) alert(`Minggu ${data.minggu} untuk ${nama} disimpan ke ringkasan bulanan.`);
+  return true;
+}
+
+function renderBulan() {
+  const sel = $("staf");
+  const cur = sel.value || "__semua";
+  const names = [...new Set(data.sejarah.map(e => e.nama))].sort();
+  sel.innerHTML = `<option value="__semua">Semua staff</option>` + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = (cur === "__semua" || names.includes(cur)) ? cur : "__semua";
+
+  const bulan = $("bulan").value;
+  const list = data.sejarah
+    .filter(e => e.minggu.slice(0, 7) === bulan && (sel.value === "__semua" || e.nama === sel.value))
+    .sort((a, b) => a.minggu.localeCompare(b.minggu) || a.nama.localeCompare(b.nama));
+
+  let H=0, J=0, G=0, P=0, B=0;
+  $("mrows").innerHTML = list.map(e => {
+    const s = new Date(e.minggu + "T00:00:00"), t = new Date(s); t.setDate(t.getDate() + 6);
+    H += e.hantar; J += e.jual; G += e.gaji; P += e.potong; B += e.bersih;
+    return `<tr><td>${fmtD(s)} - ${fmtD(t)}</td><td>${esc(e.nama)}</td><td>${e.hantar}</td><td>${e.jual}</td>
+      <td>${rm(e.gaji)}</td><td>${rm(e.potong)}</td><td class="gaji">${rm(e.bersih)}</td>
+      <td class="no-print"><button class="del" data-id="${e.id}">Padam</button></td></tr>`;
+  }).join("");
+  $("mfoot").innerHTML = list.length
+    ? `<tr><td>Jumlah</td><td></td><td>${H}</td><td>${J}</td><td>${rm(G)}</td><td>${rm(P)}</td><td>${rm(B)}</td><td class="no-print"></td></tr>` : "";
+  $("mEmpty").textContent = list.length ? "" : "Tiada rekod untuk bulan/staff ini. Simpan minggu daripada kalkulator di atas.";
+
+  $("mGaji").textContent = "RM " + rm(G);
+  $("mPotong").textContent = "- RM " + rm(P);
+  $("mBig").textContent = "RM " + rm(B);
+  const uniq = [...new Set(list.map(e => e.nama))];
+  $("mBakiRow").style.display = uniq.length === 1 ? "flex" : "none";
+  if (uniq.length === 1) $("mBaki").textContent = "RM " + rm(list[list.length - 1].bakiAkhir);
+
+  let label = bulan;
+  if (bulan) { const [y, m] = bulan.split("-"); label = new Date(+y, +m - 1, 1).toLocaleDateString("ms-MY", { month:"long", year:"numeric" }); }
+  $("monthInfo").textContent = `Bulan: ${label || "-"}  |  Staff: ${sel.value === "__semua" ? "Semua staff" : sel.value}  |  Bilangan minggu: ${list.length}`;
+}
+
+if (!$("bulan").value) {
+  const n = new Date();
+  $("bulan").value = n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0");
+}
+$("bulan").addEventListener("input", renderBulan);
+$("staf").addEventListener("change", renderBulan);
+$("saveWeek").addEventListener("click", () => saveWeek(false));
+$("mrows").addEventListener("click", e => {
+  const id = e.target.dataset && e.target.dataset.id;
+  if (!id || !confirm("Padam rekod minggu ini daripada ringkasan?")) return;
+  data.sejarah = data.sejarah.filter(x => x.id !== id);
+  save(); renderBulan();
+});
+$("printBulan").addEventListener("click", () => { document.body.classList.add("pb"); window.print(); });
+addEventListener("afterprint", () => document.body.classList.remove("pb"));
 
 // Pasang sebagai app
 let deferredPrompt = null;
@@ -247,7 +374,7 @@ installBtn.addEventListener("click", async () => {
 });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
-build(); calc();
+build(); calc(); renderBulan();
 </script>
 </body>
 </html>
