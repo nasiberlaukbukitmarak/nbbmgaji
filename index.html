@@ -37,8 +37,6 @@
   button.primary { background: var(--accent); color:#fff; border-color: var(--accent); }
   .msg { color: var(--bad); font-size: .85rem; min-height: 1.2em; margin-top: 6px; }
   .print-only { display:none; }
-  .install-row { margin: -6px 0 14px; }
-  .install-row button { width:100%; background:#d4a017; border-color:#d4a017; color:#1f2430; font-weight:700; }
   h2 { font-size:1.05rem; margin:0 0 10px; }
   .sumline { display:flex; justify-content:space-between; padding:4px 0; font-size:.95rem; }
   .sumline.minus span:last-child { color: var(--bad); }
@@ -88,7 +86,6 @@
     body.pb .weekly, body.pb .monthly { display:none; }
     body:not(.pb) .monthly, body:not(.pb) .slip { display:none; }
     body.pb .slip { display:block; }
-    .install-row { display:none; }
     body { background:#fff; }
     .no-print { display:none !important; }
     .print-only { display:block; }
@@ -107,7 +104,6 @@
       <div class="tagline">Rasa Kelantan dari Bukit Marak untuk Semua</div>
     </div>
   </header>
-  <div class="install-row no-print"><button id="install">📲 Pasang sebagai App</button></div>
   <div class="weekly">
   <h1>Kalkulator Gaji Hantar Nasi</h1>
   <p class="sub">Gaji dikira berdasarkan bungkus yang <b>berjaya dijual</b> sahaja.</p>
@@ -690,24 +686,6 @@ $("printBulan").addEventListener("click", () => {
 });
 prepLogo();
 
-// Pasang sebagai app
-let deferredPrompt = null;
-const installBtn = $("install");
-const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-if (standalone) installBtn.parentElement.style.display = "none";
-addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredPrompt = e; });
-addEventListener("appinstalled", () => { installBtn.parentElement.style.display = "none"; });
-installBtn.addEventListener("click", async () => {
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    try { await deferredPrompt.userChoice; } catch(e) {}
-    deferredPrompt = null;
-  } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
-    alert("iPhone/iPad: tekan butang Share (kotak dengan anak panah ke atas) di Safari, kemudian pilih 'Add to Home Screen'.");
-  } else {
-    alert("Buka menu browser (tiga titik), kemudian pilih 'Install app' atau 'Add to Home screen'.");
-  }
-});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
 build(); calc(); renderBulan();
