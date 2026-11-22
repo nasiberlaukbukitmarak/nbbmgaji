@@ -232,6 +232,7 @@ const KEY = "gaji-nasi-v1";
 const $ = id => document.getElementById(id);
 let data = { nama:"", minggu:"", harga:4, kadar:1, baki:"", baru:"", potong:"", sejarah:[], hantar:Array(7).fill(""), jual:Array(7).fill("") };
 let last = { gaji:0, potong:0, bakiAkhir:0, bersih:0, tH:0, tJ:0 };
+let lastWeek = null, lastSlip = null, logoData = null;
 
 try { const s = localStorage.getItem(KEY); if (s) data = Object.assign(data, JSON.parse(s)); } catch(e) {}
 
@@ -277,6 +278,7 @@ function build() {
 function calc() {
   const harga = parseFloat(data.harga) || 0, kadar = parseFloat(data.kadar) || 0;
   let tH=0, tJ=0, tB=0, tN=0, tG=0, errors=[];
+  const wk = [];
   for (let i=0;i<7;i++) {
     const h = num(data.hantar[i]), j = num(data.jual[i]);
     const bad = j > h;
@@ -284,6 +286,8 @@ function calc() {
     const jEff = bad ? h : j;
     const baki = h - jEff, nilai = jEff*harga, gaji = jEff*kadar;
     tH+=h; tJ+=jEff; tB+=baki; tN+=nilai; tG+=gaji;
+    const kosong = data.hantar[i] === "" && data.jual[i] === "";
+    wk.push([HARI[i], data.hantar[i] === "" ? "" : String(h), kosong ? "" : String(baki), kosong ? "" : String(jEff), rm(nilai), rm(gaji)]);
     const tEl = $("b"+i), jEl = document.querySelector(`[data-k="jual"][data-i="${i}"]`);
     if (document.activeElement !== tEl) tEl.value = (data.hantar[i] === "" && data.jual[i] === "") ? "" : String(baki);
     if (document.activeElement !== jEl) jEl.value = data.jual[i];
@@ -301,6 +305,7 @@ function calc() {
   const bersih = tG - potong;
   const bakiAkhir = jumlahHutang - potong;
   last = { gaji:tG, potong, bakiAkhir, bersih, jumlahHutang, tH, tJ };
+  lastWeek = { rows: wk, tot: { h:tH, tak:tB, j:tJ, n:tN, g:tG }, potong, bersih, harga, kadar };
   $("sGaji").textContent = "RM " + rm(tG);
   $("sPotong").textContent = "- RM " + rm(potong);
   $("big").textContent = "RM " + rm(bersih);
@@ -314,7 +319,6 @@ function calc() {
 }
 
 ["nama","minggu","harga","kadar","baki","baru","potong"].forEach(id => $(id).addEventListener("input", e => { data[id] = e.target.value; calc(); }));
-$("print").addEventListener("click", () => window.print());
 $("reset").addEventListener("click", () => {
   if (!confirm("Kosongkan semua jumlah hantar, terjual dan maklumat pinjaman gaji?")) return;
   data.hantar = Array(7).fill(""); data.jual = Array(7).fill("");
@@ -337,10 +341,210 @@ $("newWeek").addEventListener("click", () => {
     else if (!confirm("Nama staff atau tarikh mula minggu kosong, jadi minggu ini TIDAK disimpan ke ringkasan bulanan. Teruskan?")) return;
   }
   data.baki = last.bakiAkhir > 0 ? rm(last.bakiAkhir) : "";
-  data.baru = ""; data.potong = ""; data.minggu = "";
+  data.baru = ""; data.potong = "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(data.minggu)) {
+    const [y, m, d] = data.minggu.split("-").map(Number);
+    const n = new Date(y, m - 1, d + 7);
+    data.minggu = n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-" + String(n.getDate()).padStart(2, "0");
+  } else { data.minggu = ""; }
   data.hantar = Array(7).fill(""); data.jual = Array(7).fill("");
   build(); calc();
 });
+
+// ===== PDF (tanpa pustaka luar) =====
+const HELV = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,
+  556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,
+  667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,
+  278,278,278,469,556,333,
+  556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,
+  334,260,334,584];
+const HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,
+  556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,
+  722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,
+  333,278,333,584,556,333,
+  556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,
+  389,280,389,584];
+
+function makePdf(drawFn, logo) {
+  const W = 595.28, H = 841.89, ops = [];
+  const f = n => String(Math.round(n * 100) / 100);
+  const col = c => c.map(v => f(v / 255)).join(" ");
+  const lat = s => { let o = ""; for (const ch of String(s)) { let c = ch.codePointAt(0); if (c > 255) c = 63; o += String.fromCharCode(c); } return o; };
+  const esc = s => lat(s).replace(/[\\()]/g, m => "\\" + m);
+  const width = (s, size, bold) => {
+    const t = bold ? HELVB : HELV; let w = 0;
+    for (const ch of lat(s)) { const c = ch.charCodeAt(0); w += (c >= 32 && c <= 126) ? t[c - 32] : 556; }
+    return w * size / 1000;
+  };
+  const d = {
+    W, H, width,
+    text(s, x, y, size, o) {
+      o = o || {}; const bold = !!o.bold, color = o.color || [0,0,0], align = o.align || "left", cs = o.cs || 0;
+      const w = width(s, size, bold) + cs * String(s).length;
+      const px = align === "right" ? x - w : align === "center" ? x - w / 2 : x;
+      ops.push(`BT /${bold ? "F2" : "F1"} ${f(size)} Tf ${col(color)} rg ${f(cs)} Tc ${f(px)} ${f(H - y)} Td (${esc(s)}) Tj ET`);
+    },
+    rect(x, y, w, h, fill) { ops.push(`${col(fill)} rg ${f(x)} ${f(H - y - h)} ${f(w)} ${f(h)} re f`); },
+    line(x1, y1, x2, y2, lw, color) { ops.push(`${col(color || [0,0,0])} RG ${f(lw || 0.5)} w ${f(x1)} ${f(H - y1)} m ${f(x2)} ${f(H - y2)} l S`); },
+    image(x, y, w, h) { if (logo) ops.push(`q ${f(w)} 0 0 ${f(h)} ${f(x)} ${f(H - y - h)} cm /Im1 Do Q`); }
+  };
+  drawFn(d);
+
+  const enc = s => { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; };
+  const parts = [], offsets = []; let pos = 0;
+  const push = u => { parts.push(u); pos += u.length; };
+  const addObj = (n, ...chunks) => {
+    offsets[n] = pos; push(enc(`${n} 0 obj\n`));
+    for (const c of chunks) push(typeof c === "string" ? enc(c) : c);
+    push(enc("\nendobj\n"));
+  };
+  push(enc("%PDF-1.4\n"));
+  addObj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  addObj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  addObj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(W)} ${f(H)}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >>${logo ? " /XObject << /Im1 7 0 R >>" : ""} >> /Contents 6 0 R >>`);
+  addObj(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  addObj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+  const cb = enc(ops.join("\n"));
+  addObj(6, `<< /Length ${cb.length} >>\nstream\n`, cb, "\nendstream");
+  let n = 6;
+  if (logo) {
+    addObj(7, `<< /Type /XObject /Subtype /Image /Width ${logo.w} /Height ${logo.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length ${logo.rgb.length} >>\nstream\n`, logo.rgb, "\nendstream");
+    n = 7;
+  }
+  const xrefPos = pos;
+  let x = `xref\n0 ${n + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= n; i++) x += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+  x += `trailer\n<< /Size ${n + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+  push(enc(x));
+  const out = new Uint8Array(pos); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+const PDF_GREEN = [20,83,45], PDF_GOLD = [212,160,23], PDF_GOLDL = [252,211,77], PDF_GRAY = [107,114,128], PDF_LINE = [156,163,175], PDF_HEAD = [229,231,235];
+
+function pdfHeader(d, logo) {
+  d.rect(40, 40, d.W - 80, 62, PDF_GREEN);
+  d.rect(40, 102, d.W - 80, 4, PDF_GOLD);
+  let tx = 56;
+  if (logo) { d.image(52, 46, 50, 50); tx = 116; }
+  d.text("Nasi Berlauk Bukit Marak", tx, 70, 17, { bold: true, color: PDF_GOLDL });
+  d.text("Rasa Kelantan dari Bukit Marak untuk Semua", tx, 88, 10, { color: [243,244,246] });
+}
+
+// cols: [{t, w, a}], rows: array of arrays, tot: array|null. Pulangkan y selepas jadual.
+function pdfTable(d, x, y, cols, rows, tot) {
+  const rh = 22, pad = 6;
+  const totalW = cols.reduce((s, c) => s + c.w, 0);
+  const cellText = (txt, i, yy, bold) => {
+    const c = cols[i]; let cx = x; for (let k = 0; k < i; k++) cx += cols[k].w;
+    if (c.a === "right") d.text(txt, cx + c.w - pad, yy + 15, 10, { bold, align: "right" });
+    else d.text(txt, cx + pad, yy + 15, 10, { bold });
+  };
+  d.rect(x, y, totalW, rh, PDF_HEAD);
+  cols.forEach((c, i) => {
+    let cx = x; for (let k = 0; k < i; k++) cx += cols[k].w;
+    if (c.a === "right") d.text(c.t, cx + c.w - pad, y + 14.5, 8.5, { bold: true, align: "right" });
+    else d.text(c.t, cx + pad, y + 14.5, 8.5, { bold: true });
+  });
+  let yy = y + rh;
+  const all = rows.slice(); if (tot) all.push(tot);
+  all.forEach((r, ri) => {
+    const isTot = tot && ri === all.length - 1;
+    r.forEach((t, i) => cellText(t, i, yy, !!isTot));
+    yy += rh;
+  });
+  const bottom = yy;
+  // grid
+  for (let r = 0; r <= all.length + 1; r++) {
+    const ly = y + r * rh;
+    const thick = (tot && r === all.length) ? 1.4 : 0.5;
+    d.line(x, ly, x + totalW, ly, thick, thick > 1 ? [0,0,0] : PDF_LINE);
+  }
+  let cx = x;
+  for (let i = 0; i <= cols.length; i++) {
+    d.line(cx, y, cx, bottom, 0.5, PDF_LINE);
+    if (i < cols.length) cx += cols[i].w;
+  }
+  return bottom;
+}
+
+function pdfSummary(d, y, items, netLabel, netValue) {
+  const w = 250, x = d.W - 40 - w;
+  items.forEach(it => {
+    d.text(it[0], x, y + 12, 10.5);
+    d.text(it[1], x + w, y + 12, 10.5, { align: "right" });
+    y += 20;
+  });
+  d.line(x, y + 2, x + w, y + 2, 1.2, [0,0,0]);
+  d.text(netLabel, x, y + 20, 12, { bold: true });
+  d.text(netValue, x + w, y + 20, 12, { bold: true, align: "right" });
+  d.line(x, y + 27, x + w, y + 27, 0.6, [0,0,0]);
+  d.line(x, y + 30, x + w, y + 30, 0.6, [0,0,0]);
+  return y + 30;
+}
+
+function pdfInfo(d, y, pairs) {
+  // pairs: [[labelKiri, nilaiKiri, labelKanan, nilaiKanan], ...]
+  pairs.forEach(p => {
+    d.text(p[0], 40, y, 10, { color: PDF_GRAY });
+    d.text(p[1], 120, y, 10.5, { bold: true });
+    if (p[2]) { d.text(p[2], 320, y, 10, { color: PDF_GRAY }); d.text(p[3], 400, y, 10.5, { bold: true }); }
+    y += 18;
+  });
+  return y;
+}
+
+function pdfSign(d, y, nama) {
+  const w = 190;
+  d.line(40, y, 40 + w, y, 0.7, [0,0,0]);
+  d.text("Disediakan oleh", 40 + w / 2, y + 14, 10, { align: "center" });
+  const rx = d.W - 40 - w;
+  d.line(rx, y, rx + w, y, 0.7, [0,0,0]);
+  d.text("Diterima oleh", rx + w / 2, y + 14, 10, { align: "center" });
+  if (nama) d.text("(" + nama + ")", rx + w / 2, y + 28, 9, { align: "center", color: PDF_GRAY });
+}
+
+function pdfFooter(d, txt) {
+  d.text(txt, d.W / 2, d.H - 36, 8, { align: "center", color: PDF_GRAY });
+}
+
+// m: {nama, bulan, tarikh, rows:[[minggu,hantar,jual,kasar,potong,bersih]], tot:{H,J,G,P,B}}
+function buildSlipPdf(m, logo) {
+  return makePdf(d => {
+    pdfHeader(d, logo);
+    d.text("SLIP GAJI", d.W / 2, 140, 18, { bold: true, align: "center", cs: 3 });
+    let y = pdfInfo(d, 170, [["Nama staff", m.nama || "-", "Bulan", m.bulan || "-"], ["Jawatan", "Penghantar Nasi", "Tarikh slip", m.tarikh]]);
+    const cols = [
+      { t: "MINGGU", w: 95, a: "left" }, { t: "DIHANTAR", w: 60, a: "right" }, { t: "TERJUAL", w: 55, a: "right" },
+      { t: "KASAR (RM)", w: 90, a: "right" }, { t: "POTONGAN (RM)", w: 90, a: "right" }, { t: "BERSIH (RM)", w: 85.28, a: "right" }
+    ];
+    const t = m.tot;
+    y = pdfTable(d, 40, y + 12, cols, m.rows, ["Jumlah", String(t.H), String(t.J), t.G.toFixed(2), t.P.toFixed(2), t.B.toFixed(2)]);
+    y = pdfSummary(d, y + 18, [["Jumlah pendapatan", "RM " + t.G.toFixed(2)], ["Jumlah potongan pinjaman", "- RM " + t.P.toFixed(2)]], "GAJI BERSIH", "RM " + t.B.toFixed(2));
+    pdfSign(d, y + 80, m.nama);
+    pdfFooter(d, "Slip ini dijana oleh sistem NBBM Gaji - Nasi Berlauk Bukit Marak");
+  }, logo);
+}
+
+// m: {nama, minggu, harga, kadar, rows:[[hari,hantar,tak,jual,jualan,gaji]], tot:{h,tak,j,n,g}, potong, bersih}
+function buildWeekPdf(m, logo) {
+  return makePdf(d => {
+    pdfHeader(d, logo);
+    d.text("LAPORAN GAJI MINGGUAN", d.W / 2, 140, 16, { bold: true, align: "center", cs: 2 });
+    let y = pdfInfo(d, 170, [["Nama staff", m.nama || "-", "Minggu bermula", m.minggu || "-"], ["Harga nasi", "RM " + m.harga.toFixed(2) + " / bungkus", "Gaji", "RM " + m.kadar.toFixed(2) + " / bungkus terjual"]]);
+    const cols = [
+      { t: "HARI", w: 95, a: "left" }, { t: "DIHANTAR", w: 75, a: "right" }, { t: "TAK TERJUAL", w: 80, a: "right" },
+      { t: "TERJUAL", w: 70, a: "right" }, { t: "JUALAN (RM)", w: 80, a: "right" }, { t: "GAJI (RM)", w: 75.28, a: "right" }
+    ];
+    const t = m.tot;
+    y = pdfTable(d, 40, y + 12, cols, m.rows, ["Jumlah", String(t.h), String(t.tak), String(t.j), t.n.toFixed(2), t.g.toFixed(2)]);
+    y = pdfSummary(d, y + 18, [["Gaji kasar", "RM " + t.g.toFixed(2)], ["Potongan pinjaman", "- RM " + m.potong.toFixed(2)]], "GAJI BERSIH", "RM " + m.bersih.toFixed(2));
+    pdfSign(d, y + 80, m.nama);
+    pdfFooter(d, "Dijana oleh sistem NBBM Gaji - Nasi Berlauk Bukit Marak");
+  }, logo);
+}
+// ===== END PDF =====
 
 // ===== Ringkasan bulanan =====
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -411,6 +615,14 @@ function renderBulan() {
   $("slKasar").textContent = rm(G);
   $("slPotong").textContent = "- " + rm(P);
   $("slBersih").textContent = "RM " + rm(B);
+  lastSlip = {
+    nama: sel.value, bulan: label, tarikh: tarikhSlip,
+    rows: list.map(e => {
+      const s3 = new Date(e.minggu + "T00:00:00"), t3 = new Date(s3); t3.setDate(t3.getDate() + 6);
+      return [fmtD(s3) + " - " + fmtD(t3), String(e.hantar), String(e.jual), rm(e.gaji), rm(e.potong), rm(e.bersih)];
+    }),
+    tot: { H, J, G, P, B }
+  };
   $("monthInfo").textContent = `Staff: ${sel.value || "-"}  |  Bulan: ${label || "-"}  |  Bilangan minggu: ${list.length}`;
 }
 
@@ -427,13 +639,56 @@ $("mrows").addEventListener("click", e => {
   data.sejarah = data.sejarah.filter(x => x.id !== id);
   save(); renderBulan();
 });
-$("printBulan").addEventListener("click", () => {
-  if (!$("mrows").children.length) { alert("Tiada rekod untuk dicetak. Simpan minggu dahulu."); return; }
-  document.title = `Slip Gaji - ${$("staf").value} - ${$("bulan").value}`;
-  document.body.classList.add("pb");
-  window.print();
+
+const safe = t => String(t || "").trim().replace(/[^\w\-]+/g, "-").replace(/^-+|-+$/g, "");
+
+function prepLogo() {
+  try {
+    const im = document.querySelector("img.logo");
+    const go = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(im, 0, 0);
+        const px = ctx.getImageData(0, 0, c.width, c.height).data;
+        const rgb = new Uint8Array(c.width * c.height * 3);
+        for (let i = 0, j = 0; i < px.length; i += 4) { rgb[j++] = px[i]; rgb[j++] = px[i+1]; rgb[j++] = px[i+2]; }
+        logoData = { w: c.width, h: c.height, rgb };
+      } catch (e) {}
+    };
+    if (im.complete && im.naturalWidth) go(); else im.addEventListener("load", go);
+  } catch (e) {}
+}
+
+async function savePdf(bytes, filename) {
+  const file = new File([bytes], filename, { type: "application/pdf" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: filename }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+$("print").addEventListener("click", () => {
+  if (!lastWeek || lastWeek.tot.h === 0) { alert("Isi maklumat dihantar dan terjual dahulu."); return; }
+  const tarikh = data.minggu ? new Date(data.minggu + "T00:00:00").toLocaleDateString("ms-MY", { day:"numeric", month:"long", year:"numeric" }) : "-";
+  const bytes = buildWeekPdf({ nama: data.nama.trim(), minggu: tarikh, harga: lastWeek.harga, kadar: lastWeek.kadar,
+    rows: lastWeek.rows, tot: lastWeek.tot, potong: lastWeek.potong, bersih: lastWeek.bersih }, logoData);
+  savePdf(bytes, `Gaji-${safe(data.nama) || "staff"}-${data.minggu || "minggu"}.pdf`);
 });
-addEventListener("afterprint", () => { document.body.classList.remove("pb"); document.title = "NBBM Gaji"; });
+
+$("printBulan").addEventListener("click", () => {
+  if (!lastSlip || !lastSlip.rows.length) { alert("Tiada rekod untuk dimuat turun. Simpan minggu dahulu."); return; }
+  const bytes = buildSlipPdf(lastSlip, logoData);
+  savePdf(bytes, `Slip-Gaji-${safe(lastSlip.nama) || "staff"}-${$("bulan").value || "bulan"}.pdf`);
+});
+prepLogo();
 
 // Pasang sebagai app
 let deferredPrompt = null;
